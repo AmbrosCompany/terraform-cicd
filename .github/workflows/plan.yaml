@@ -1,0 +1,117 @@
+---
+name: Plan
+
+on:
+  workflow_call:
+    inputs:
+      terraform-version:
+        description: "Version of terraform to use."
+        required: false
+        type: string
+        default: 1.4.5
+      auth-project-number:
+        required: false
+        type: string
+        default: ""
+      auth-project-name:
+        required: false
+        type: string
+        default: ""
+      dev-project-number:
+        required: true
+        type: string
+      stage-project-number:
+        required: true
+        type: string
+      prod-project-number:
+        required: true
+        type: string
+      dev-project-name:
+        required: true
+        type: string
+      stage-project-name:
+        required: true
+        type: string
+      prod-project-name:
+        required: true
+        type: string
+      dev-branches:
+        required: true
+        type: string
+      stage-branches:
+        required: true
+        type: string
+      prod-branches:
+        required: true
+        type: string
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Get Repository Name
+      run: echo "repo_name=${GITHUB_REPOSITORY#*/}" >> $GITHUB_ENV
+
+    - name: Set env variables depending on the branch
+      run: |
+        AUTH_PROJECT_NUMBER=""
+        AUTH_PROJECT_NAME=""
+        if echo "${{ inputs.dev-branches }}" | grep -q "\b${{ github.event.pull_request.base.ref }}\b"; then
+          if [ "${{ inputs.auth-project-number }}" != "" ] && [ "${{ inputs.auth-project-name }}" != "" ]; then
+            AUTH_PROJECT_NUMBER=${{ inputs.auth-project-number }}
+            AUTH_PROJECT_NAME=${{ inputs.auth-project-name }}
+          else
+            AUTH_PROJECT_NUMBER=${{ inputs.dev-project-number }}
+            AUTH_PROJECT_NAME=${{ inputs.dev-project-name }}
+          fi
+          echo "PROJECT_NUBMER=${{ inputs.dev-project-number }}" >> $GITHUB_ENV
+          echo "PROJECT_NAME=${{ inputs.dev-project-name }}" >> $GITHUB_ENV
+          echo "WI_PROVIDER=projects/$AUTH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_ENV
+          echo "SA_EMAIL=gha-${{ env.repo_name }}@$AUTH_PROJECT_NAME.iam.gserviceaccount.com" >> $GITHUB_ENV
+          echo "TF_VARS_FILE=dev.tfvars" >> $GITHUB_ENV
+          echo "SHOULD_PLAN=true" >> $GITHUB_ENV
+        elif echo "${{ inputs.stage-branches }}" | grep -q "\b${{ github.event.pull_request.base.ref }}\b"; then
+          if [ "${{ inputs.auth-project-number }}" != "" ] && [ "${{ inputs.auth-project-name }}" != "" ]; then
+            AUTH_PROJECT_NUMBER=${{ inputs.auth-project-number }}
+            AUTH_PROJECT_NAME=${{ inputs.auth-project-name }}
+          else
+            AUTH_PROJECT_NUMBER=${{ inputs.stage-project-number }}
+            AUTH_PROJECT_NAME=${{ inputs.stage-project-name }}
+          fi
+          echo "PROJECT_NUBMER=${{ inputs.stage-project-number }}" >> $GITHUB_ENV
+          echo "PROJECT_NAME=${{ inputs.stage-project-name }}" >> $GITHUB_ENV
+          echo "WI_PROVIDER=projects/$AUTH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_ENV
+          echo "SA_EMAIL=gha-${{ env.repo_name }}@$AUTH_PROJECT_NAME.iam.gserviceaccount.com" >> $GITHUB_ENV
+          echo "TF_VARS_FILE=stage.tfvars" >> $GITHUB_ENV
+          echo "SHOULD_PLAN=true" >> $GITHUB_ENV
+        elif echo "${{ inputs.prod-branches }}" | grep -q "\b${{ github.event.pull_request.base.ref }}\b"; then
+          if [ "${{ inputs.auth-project-number }}" != "" ] && [ "${{ inputs.auth-project-name }}" != "" ]; then
+            AUTH_PROJECT_NUMBER=${{ inputs.auth-project-number }}
+            AUTH_PROJECT_NAME=${{ inputs.auth-project-name }}
+          else
+            AUTH_PROJECT_NUMBER=${{ inputs.prod-project-number }}
+            AUTH_PROJECT_NAME=${{ inputs.prod-project-name }}
+          fi
+          echo "PROJECT_NUBMER=${{ inputs.prod-project-number }}" >> $GITHUB_ENV
+          echo "PROJECT_NAME=${{ inputs.prod-project-name }}" >> $GITHUB_ENV
+          echo "WI_PROVIDER=projects/$AUTH_PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider" >> $GITHUB_ENV
+          echo "SA_EMAIL=gha-${{ env.repo_name }}@$AUTH_PROJECT_NAME.iam.gserviceaccount.com" >> $GITHUB_ENV
+          echo "TF_VARS_FILE=prod.tfvars" >> $GITHUB_ENV
+          echo "SHOULD_PLAN=true" >> $GITHUB_ENV
+        else
+          echo "SHOULD_PLAN=false" >> $GITHUB_ENV
+        fi
+
+    - name: Run Plan
+      if: env.SHOULD_PLAN == 'true'
+      uses: ./terraform-plan
+      with:
+        passed_repository: ${{ github.repository }}
+        passed_workload_identity_provider: ${{ env.WI_PROVIDER }}
+        passed_service_account: ${{ env.SA_EMAIL }}
+        passed_github_token: ${{ secrets.GITHUB_TOKEN }}
+        passed_plan_bucket: "${{ env.PROJECT_NAME }}-tf-states"
+        generate_gcs_backend_config: true
+        backend_bucket_name: "${{ env.PROJECT_NAME }}-tf-states"
+        tf_vars_file: ${{ env.TF_VARS_FILE }}
+        tf_version: ${{ inputs.terraform-version }}

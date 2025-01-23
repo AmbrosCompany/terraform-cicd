@@ -1,0 +1,141 @@
+name: 'Terraform Plan'
+description: 'Terraform: Plan'
+inputs:
+  passed_repository:
+    type: string
+    required: true
+  passed_workload_identity_provider:
+    required: true
+  passed_service_account:
+    required: true
+  passed_plan_bucket:
+    required: true
+  passed_github_token:
+    required: true
+  tf_version:
+    required: false
+    default: 1.4.6
+  tf_init_arg:
+    required: false
+    default: '-reconfigure'
+  generate_gcs_backend_config:
+    type: boolean
+    required: false
+    default: false
+  backend_bucket_name:
+    type: string
+    required: false
+    default: ''
+  tf_vars_file:
+    type: string
+    required: false
+    default: ''
+
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ inputs.passed_github_token }}
+        repository: ${{ inputs.passed_repository }}
+
+    - name: Authenticate with Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ inputs.passed_workload_identity_provider }}
+        service_account: ${{ inputs.passed_service_account }}
+
+    - name: Setup Terraform with specified version on the runner
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ inputs.tf_version }}
+
+    - name: Add backend config
+      if: inputs.generate_gcs_backend_config
+      shell: bash
+      run: |
+        echo "terraform {" > backend.tf
+        echo "  backend \"gcs\" {" >> backend.tf
+        echo "    bucket = \"${{ inputs.backend_bucket_name }}\"" >> backend.tf
+        echo "  }" >> backend.tf
+        echo "}" >> backend.tf
+        cat backend.tf
+
+    - name: Terraform fmt
+      id: fmt
+      run: terraform fmt -check
+      shell: bash
+
+    - name: Terraform Init
+      id: init
+      run: terraform init ${{ inputs.tf_init_arg }}
+      shell: bash
+
+    - name: Terraform Validate
+      id: validate
+      run: terraform validate -no-color
+      shell: bash
+
+    - name: Terraform Plan
+      id: plan
+      run: |
+        if [ -z "${{ inputs.tf_vars_file }}" ]; then
+          terraform plan -no-color -out=tfplan
+        else
+          terraform plan -no-color -out=tfplan -var-file="${{ inputs.tf_vars_file }}"
+        fi
+      shell: bash
+
+    - uses: actions/github-script@v7
+      if: github.event_name == 'pull_request'
+      env:
+        PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
+      with:
+        github-token: ${{ inputs.passed_github_token }}
+        script: |
+          const run_url = process.env.GITHUB_SERVER_URL + '/' + process.env.GITHUB_REPOSITORY + '/actions/runs/' + process.env.GITHUB_RUN_ID
+          const run_link = '<a href="' + run_url + '">Actions</a>.'
+
+          const truncated_plan = process.env.PLAN.length > 65000 ? process.env.PLAN.substring(0, 65000) + " ..." : process.env.PLAN
+          const truncated_message = process.env.PLAN.length > 65000 ? "Output is too long and was truncated. You can read the full Plan in " + run_link + "<br /><br />" : ""
+
+          const output = `#### Terraform Format and Style 🖌 \`${{ steps.fmt.outcome }}\`
+          #### Terraform Initialization ⚙️ \`${{ steps.init.outcome }}\`
+          #### Terraform Validation 🤖 \`${{ steps.validate.outcome }}\`
+          <details><summary>Validation Output</summary>
+
+          \`\`\`\n
+          ${{ steps.validate.outputs.stdout }}
+          \`\`\`
+
+          </details>
+
+          #### Terraform Plan 📖 \`${{ steps.plan.outcome }}\`
+
+          <details><summary>Show Plan</summary>
+
+          \`\`\`\n
+          ${truncated_plan}
+          \`\`\`
+
+          </details>
+          ${truncated_message}
+
+          *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ env.tf_actions_working_dir }}\`, Workflow: \`${{ github.workflow }}\`*`;
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: output
+          })
+
+    - name: 'Set up Cloud SDK'
+      uses: 'google-github-actions/setup-gcloud@v2'
+
+    - name: Copy tfplan to GCS
+      run: |
+        gsutil cp tfplan gs://${{ inputs.passed_plan_bucket }}/PLAN_FOR_${{ inputs.passed_repository }}_PR_${{ github.event.pull_request.number }}/
+      shell: bash
