@@ -1,0 +1,116 @@
+name: 'Terraform Apply'
+description: 'Terraform: Apply'
+
+inputs:
+  passed_repository:
+    type: string
+    required: true
+  passed_workload_identity_provider:
+    required: true
+  passed_service_account:
+    required: true
+  passed_plan_bucket:
+    required: true
+  passed_github_token:
+    required: true
+  passed_issue_number:
+    required: true
+  passed_ref:
+    required: true
+  tf_version:
+    requred: false
+    default: 1.4.6
+  tf_init_arg:
+    required: false
+    default: '-reconfigure'
+  generate_gcs_backend_config:
+    type: boolean
+    required: false
+    default: false
+  backend_bucket_name:
+    type: string
+    required: false
+    default: ''
+
+outputs:
+  apply_done:
+    description: "Terraform Apply is success?"
+    value: ${{ steps.get-terraform-apply-message.outputs.apply_done }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ inputs.passed_github_token }}
+        repository: ${{ inputs.passed_repository }}
+        ref: ${{ inputs.passed_ref }}
+
+    - name: Authenticate with Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ inputs.passed_workload_identity_provider }}
+        service_account: ${{ inputs.passed_service_account }}
+
+    - name: Setup Terraform with specified version on the runner
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ inputs.tf_version }}
+
+    - name: Add backend config
+      if: inputs.generate_gcs_backend_config
+      shell: bash
+      run: |
+        echo "terraform {" > backend.tf
+        echo "  backend \"gcs\" {" >> backend.tf
+        echo "    bucket = \"${{ inputs.backend_bucket_name }}\"" >> backend.tf
+        echo "  }" >> backend.tf
+        echo "}" >> backend.tf
+        cat backend.tf
+
+    - name: Terraform fmt
+      id: fmt
+      run: terraform fmt -check
+      shell: bash
+
+    - name: Terraform Init
+      id: init
+      run: terraform init ${{ inputs.tf_init_arg }}
+      shell: bash
+
+    - name: Terraform Validate
+      id: validate
+      run: terraform validate -no-color
+      shell: bash
+
+    - name: 'Set up Cloud SDK'
+      uses: 'google-github-actions/setup-gcloud@v2'
+
+    - name: Download tfplan from GCS
+      run: |
+          gsutil cp gs://${{ inputs.passed_plan_bucket }}/PLAN_FOR_${{ inputs.passed_repository }}_PR_${{ github.event.issue.number }}/tfplan ./${{ github.event.issue.number }}/tfplan
+      shell: bash
+
+    - name: Terraform Apply
+      id: apply
+      continue-on-error: true
+      run: |
+          terraform apply ./${{ github.event.issue.number }}/tfplan >> terraform_error_${{ github.event.issue.number }}.txt -no-color
+      shell: bash
+
+    - name: Set Environment Variables
+      run: |
+        echo "TERRAFROM_ERROR=echo $(cat terraform_error_${{ github.event.issue.number }}.txt  | tr -d '\n:' | sed 's/  / /g')" >> $GITHUB_ENV
+        echo "TERRAFROM_ERROR=echo $(cat terraform_error_${{ github.event.issue.number }}.txt  | tr -d '\n:' | sed 's/  / /g')"
+        echo "GITHUB_EVENT_ISSUE_NUMBER=${{ github.event.issue.number }}" >> $GITHUB_ENV
+        echo "INPUT_PASSED_GITHUB_TOKEN=${{ inputs.passed_github_token }}" >> $GITHUB_ENV
+        if [ ${{ steps.apply.outcome }} == 'failure' ]; then
+          echo "TERRAFORM_APPLY_FAILED=true" >> $GITHUB_ENV
+        fi
+      shell: bash
+
+    - name: Run after terraform Apply steps
+      id: run_after_terraform_apply_steps
+      run: python3 $GITHUB_ACTION_PATH/action/after_terraform_apply_steps.py
+      shell: bash
