@@ -104,7 +104,7 @@ jobs:
 
     - name: Run Plan
       if: env.SHOULD_PLAN == 'true'
-      uses: ./terraform-plan
+      uses: ffernandez92/terraform-cicd/terraform-plan@main
       with:
         passed_repository: ${{ github.repository }}
         passed_workload_identity_provider: ${{ env.WI_PROVIDER }}
