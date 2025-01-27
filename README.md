@@ -74,6 +74,8 @@ jobs:
 ### Notes:
 - Replace the project numbers (`123456789011`, etc.) and project names (`my-dev-project`, etc.) with your actual GCP project details.
 - Adjust the branch names (`dev`, `stage`, `prod`) based on your branching strategy.
+- The Terraform plan files will be stored in a Google Cloud Storage (GCS) bucket. This bucket must be created before running the pipeline and must follow the naming convention: `(gcp-project-name)-tf-states`.
+
 
 ### Features:
 - **Multi-Branch Support:** Automatically triggers Terraform plan and apply for specific branches.
