@@ -2,7 +2,7 @@
 
 import os
 
-from action.utils_apply import (
+from utils_apply import (
     create_issue_comment,
     dismiss_approval,
     merge_pr,

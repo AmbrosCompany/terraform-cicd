@@ -4,7 +4,7 @@ import os
 
 import requests
 
-from action.utils_dispatch import check_if_pr_approved, create_issue_comment, set_output
+from utils_dispatch import check_if_pr_approved, create_issue_comment, set_output
 
 github_repo = str(os.getenv("GITHUB_REPOSITORY"))
 issue_number = str(os.getenv("GITHUB_EVENT_ISSUE_NUMBER"))
