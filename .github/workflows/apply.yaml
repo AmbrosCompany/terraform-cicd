@@ -147,7 +147,7 @@ jobs:
 
     - name: Run Apply
       if: env.SHOULD_APPLY == 'true'
-      uses: ffernandez92/terraform-cicd/terraform-apply@main
+      uses: AmbrosCompany/terraform-cicd/terraform-apply@main
       with:
         passed_repository: ${{ github.repository }}
         passed_workload_identity_provider: ${{ env.WI_PROVIDER }}
