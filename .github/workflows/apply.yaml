@@ -73,7 +73,7 @@ jobs:
     - name: Run Dispatch
       if: env.SHOULD_APPLY == 'true'
       id: dispatch
-      uses: ffernandez92/terraform-cicd/terraform-dispatch@main
+      uses: AmbrosCompany/terraform-cicd/terraform-dispatch@main
       with:
         passed_github_token: ${{ secrets.GITHUB_TOKEN }}
 
